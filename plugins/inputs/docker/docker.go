@@ -37,6 +37,7 @@ type DockerClient interface {
 	Info(ctx context.Context) (types.Info, error)
 	ContainerList(ctx context.Context, options types.ContainerListOptions) ([]types.Container, error)
 	ContainerStats(ctx context.Context, containerID string, stream bool) (io.ReadCloser, error)
+	ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error)
 }
 
 // KB, MB, GB, TB, PB...human friendly
@@ -256,6 +257,18 @@ func (d *Docker) gatherContainer(
 	// Add labels to tags
 	for k, label := range container.Labels {
 		tags[k] = label
+	}
+
+	j, err := d.client.ContainerInspect(ctx, container.ID)
+	if err != nil {
+		return fmt.Errorf("Error getting docker container json: %s", err.Error())
+	}
+	if len(j.Config.Env) > 0 {
+		for _, str := range j.Config.Env {
+			if strings.HasPrefix(str,  "MARATHON_APP_ID=") {
+				tags["mesosAppId"] = strings.TrimLeft(str, "MARATHON_APP_ID=")
+			}
+		}
 	}
 
 	gatherContainerStats(v, acc, tags, container.ID, d.PerDevice, d.Total)
