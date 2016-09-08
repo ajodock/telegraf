@@ -30,6 +30,8 @@ type Docker struct {
 
 	client      DockerClient
 	engine_host string
+	EnvironmentVariables []string
+
 }
 
 // DockerClient interface, useful for testing
@@ -68,6 +70,8 @@ var sampleConfig = `
   perdevice = true
   ## Whether to report for each container total blkio and network stats or not
   total = false
+  ## Environment variables to collect as tags
+  environment_variables = []
 
 `
 
@@ -259,14 +263,22 @@ func (d *Docker) gatherContainer(
 		tags[k] = label
 	}
 
-	j, err := d.client.ContainerInspect(ctx, container.ID)
-	if err != nil {
-		return fmt.Errorf("Error getting docker container json: %s", err.Error())
-	}
-	if len(j.Config.Env) > 0 {
-		for _, str := range j.Config.Env {
-			if strings.HasPrefix(str,  "MARATHON_APP_ID=") {
-				tags["mesosAppId"] = strings.TrimLeft(str, "MARATHON_APP_ID=")
+	if len(d.EnvironmentVariables) > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), d.Timeout.Duration)
+		defer cancel()
+		j, err := d.client.ContainerInspect(ctx, container.ID)
+		if err != nil {
+			return fmt.Errorf("Error getting docker container json: %s", err.Error())
+		}
+		defer r.Close()
+		if len(j.Config.Env) > 0 {
+			for _, content := range j.Config.Env {
+				for _, filter := range d.EnvironmentVariables {
+					prefix := strings.Join([]string{filter, "="}, "")
+					if strings.HasPrefix(content,  prefix) {
+						tags[filter] = strings.TrimLeft(content, prefix)
+					}
+				}
 			}
 		}
 	}
